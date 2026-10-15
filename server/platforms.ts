@@ -40,7 +40,7 @@ export async function remote(
   }
   if (!r.ok || data.error)
     throw new RemoteError(
-      `平台請求失敗（HTTP ${r.status}，代碼 ${data.error?.code ?? data.status ?? "unknown"}）`,
+      `平台請求失敗（HTTP ${r.status}，代碼 ${data.error?.code ?? data.status ?? "unknown"}）${Number(data.error?.code) === 190 ? "：Token 已過期或失效，請重新授權並更新 Token" : ""}`,
       publishing && r.status >= 500,
     );
   return data;

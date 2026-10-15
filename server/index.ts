@@ -16,7 +16,7 @@ import { createSheet, updateSheet, approve, empty } from "./store.js";
 import { sheetSchema } from "../shared/model.js";
 import { verifyAccount } from "./platforms.js";
 import { runAgent } from "./agent.js";
-import { tick, syncJob } from "./worker.js";
+import { tick, syncJob, accountFor } from "./worker.js";
 import { registerOAuthCallback, startXOAuth } from "./oauth.js";
 await init();
 await mkdir("data/uploads", { recursive: true });
@@ -105,7 +105,10 @@ app.get("/api/state", async (req, res) => {
   const accounts = [];
   for (const p of ["x", "facebook", "threads", "instagram"]) {
     const a = await setting("account:" + p);
-    if (a) accounts.push({ platform: p, id: a.id, name: a.name });
+    if (a) accounts.push({ platform: p, id: a.id, name: a.name,
+      tokenStoredAt: a.tokenStoredAt || null,
+      connectionTest: await setting("account-test:" + p) || a.connectionTest || null,
+    });
   }
   res.json({
     sheets: (await query("SELECT * FROM sheets ORDER BY updated_at DESC")).rows,
@@ -254,8 +257,30 @@ app.post("/api/accounts", async (req, res) => {
     })
     .parse(req.body);
   const a = await verifyAccount(v.platform, v.token, v.pageId);
-  await saveSetting("account:" + v.platform, { ...a, token: encrypt(a.token) });
+  const now = new Date().toISOString();
+  await saveSetting("account:" + v.platform, { ...a, token: encrypt(a.token), tokenStoredAt: now });
+  await saveSetting("account-test:" + v.platform, { testedAt: now, ok: true, message: "身分驗證成功；未測試實際發佈權限或素材入口" });
   res.json({ name: a.name, id: a.id });
+});
+app.post("/api/accounts/:platform/test", async (req, res) => {
+  const platform = z.enum(["x", "facebook", "threads", "instagram"]).parse(req.params.platform);
+  const original = await setting("account:" + platform);
+  if (!original) return res.status(400).json({ error: "帳號尚未連接" });
+  let result;
+  try {
+    const account = await accountFor(platform);
+    const verified = await verifyAccount(platform, account.token, account.id);
+    if (verified.id !== original.id) throw Error("帳號身分不符，請重新連接");
+    result = { testedAt: new Date().toISOString(), ok: true, message: "身分驗證成功；未測試實際發佈權限或素材入口" };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "連接測試失敗";
+    result = { testedAt: new Date().toISOString(), ok: false, message };
+  }
+  const current = await setting("account:" + platform);
+  if (current.tokenStoredAt !== original.tokenStoredAt || current.id !== original.id)
+    return res.status(409).json({ error: "測試期間連接已更新，請重新測試" });
+  await saveSetting("account-test:" + platform, result);
+  res.json(result);
 });
 let agentBusy = false;
 app.post("/api/chat", async (req, res) => {
@@ -312,6 +337,9 @@ app.get("/api/assets/:id", async (req, res) => {
   if (!a) return res.sendStatus(404);
   res.type(a.mime);
   res.sendFile(a.path);
+});
+app.use("/api", (_req, res) => {
+  res.status(404).json({ error: "API 路由不存在，請確認前後端版本一致並重新啟動後端" });
 });
 app.use(express.static("dist"));
 app.use((err: any, _req: any, res: any, _next: any) => {

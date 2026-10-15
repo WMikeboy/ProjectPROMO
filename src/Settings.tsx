@@ -16,6 +16,15 @@ export default function Settings({
     [platform, P] = useState("x"),
     [pageId, Id] = useState(""),
     [status, Status] = useState("");
+  const [testing, setTesting] = useState<string | null>(null);
+  async function testConnection(platform: string) {
+    setTesting(platform);
+    try {
+      await api(`/accounts/${platform}/test`, {});
+      await refresh();
+    } catch (e) { onError((e as Error).message); }
+    finally { setTesting(null); }
+  }
   async function save(fn: () => Promise<any>) {
     Status("處理中…");
     try {
@@ -79,17 +88,22 @@ export default function Settings({
         </section>
         <section className="panel">
           <div className="section-title">平台連接</div>
+          <p className="muted">時間為本系統保存 Token 的時間，非平台簽發時間或到期時間。測試只讀取帳號身分，不會發佈帖子；結果代表測試當下的狀態。</p>
           {state.oauthX && (
             <p>
               <a href="/api/oauth/x/start">使用 X OAuth 連接帳號 →</a>
             </p>
           )}
           {state.accounts.map((a: any) => (
-            <p className="connected" key={a.platform}>
+            <div className="connected" key={a.platform}>
               <span className="dot" />
               {names[a.platform]} · {a.name}
-              <small>{a.id} · 已驗證身分，發佈權限待實際請求確認</small>
-            </p>
+              <small>{a.id}</small>
+              <p>Token 儲存／更新時間：{a.tokenStoredAt ? new Date(a.tokenStoredAt).toLocaleString() : "未記錄（舊連接）"}</p>
+              <p role="status">連接測試：{a.connectionTest ? `${a.connectionTest.ok ? "成功" : "失敗"} · ${a.connectionTest.message}` : "尚未測試"}</p>
+              {a.connectionTest && <small>測試時間：{new Date(a.connectionTest.testedAt).toLocaleString()}</small>}
+              <button disabled={testing !== null} onClick={() => void testConnection(a.platform)}>{testing === a.platform ? "測試中…" : "測試連接"}</button>
+            </div>
           ))}
           <select value={platform} onChange={(e) => P(e.target.value)}>
             <option value="x">X · User access token</option>

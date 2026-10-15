@@ -26,9 +26,11 @@ export function registerOAuthCallback(app: Express) {
       await saveSetting("account:x", {
         ...a,
         token: encrypt(a.token),
+        tokenStoredAt: new Date().toISOString(),
         refreshToken: data.refresh_token ? encrypt(data.refresh_token) : null,
         expiresAt: Date.now() + (data.expires_in || 7200) * 1000,
       });
+      await saveSetting("account-test:x", { testedAt: new Date().toISOString(), ok: true, message: "身分驗證成功；未測試實際發佈權限或素材入口" });
       res.redirect("/");
     } catch {
       res
@@ -101,6 +103,7 @@ export async function refreshedXAccount() {
       const next = {
         ...a,
         token: encrypt(data.access_token),
+        tokenStoredAt: new Date().toISOString(),
         refreshToken: data.refresh_token
           ? encrypt(data.refresh_token)
           : a.refreshToken,

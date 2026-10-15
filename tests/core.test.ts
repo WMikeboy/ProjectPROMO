@@ -97,3 +97,32 @@ test('Instagram Login identity and Threads metrics use separate API hosts',async
     assert.equal(m.views,12);assert.equal(m.like_count,3);assert.equal(m.reply_count,null);
   } finally {globalThis.fetch=original;}
 });
+
+test("Meta code 190 gives actionable guidance without exposing API secrets", async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ error: { code: 190, message: "sensitive-token-detail" } }), { status: 401 });
+  try {
+    await assert.rejects(() => remote("https://graph.instagram.com/me", "private-token"), (e: any) => {
+      assert.match(e.message, /Token 已過期或失效/);
+      assert.doesNotMatch(e.message, /sensitive-token-detail|private-token/);
+      return true;
+    });
+  } finally { globalThis.fetch = original; }
+});
+
+test("API client handles HTML, unauthorized responses, and JSON results", async () => {
+  const { api } = await import("../src/api.js");
+  const original = globalThis.fetch;
+  try {
+    for (const status of [200, 404, 502]) {
+      globalThis.fetch = async () => new Response("<!DOCTYPE html><html>error</html>", { status });
+      await assert.rejects(() => api("/accounts/threads/test", {}), /API 回傳非 JSON.*重新啟動後端/);
+    }
+    globalThis.fetch = async () => new Response("<!DOCTYPE html>", { status: 401 });
+    await assert.rejects(() => api("/state"), /^Error: LOGIN$/);
+    globalThis.fetch = async () => Response.json({ error: "帳號尚未連接" }, { status: 400 });
+    await assert.rejects(() => api("/accounts/threads/test", {}), /帳號尚未連接/);
+    globalThis.fetch = async () => Response.json({ ok: false, message: "Token 已失效" });
+    assert.deepEqual(await api("/accounts/threads/test", {}), { ok: false, message: "Token 已失效" });
+  } finally { globalThis.fetch = original; }
+});

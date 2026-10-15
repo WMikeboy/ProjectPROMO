@@ -13,8 +13,15 @@ export async function api(
         : JSON.stringify(body)
       : undefined,
   });
-  const d = await r.json();
-  if (!r.ok) throw Error(r.status === 401 ? "LOGIN" : d.error || "操作失敗");
+  if (r.status === 401) throw Error("LOGIN");
+  const raw = await r.text();
+  let d;
+  try {
+    d = JSON.parse(raw);
+  } catch {
+    throw Error(`API 回傳非 JSON（HTTP ${r.status}）。請重新啟動後端並重新整理頁面；若仍失敗，請檢查 API 代理設定。`);
+  }
+  if (!r.ok) throw Error(d?.error || `操作失敗（HTTP ${r.status}）`);
   return d;
 }
 export const names: Record<string, string> = {
